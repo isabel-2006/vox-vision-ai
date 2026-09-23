@@ -1,0 +1,89 @@
+# Implementation Plan - Step 3: Modular LLM Integration
+
+Connect VoxVision AI to a real LLM provider via the FastAPI backend and WebSocket architecture, supporting modular LLM services, streaming/loading states, error handling, and zero key exposure to the client.
+
+## User Review Required
+
+> [!IMPORTANT]
+> **API Key Security**: API keys (`GEMINI_API_KEY`, `OPENAI_API_KEY`) will reside exclusively in `backend/.env` and will be loaded server-side by `backend/app/config.py`. Under no circumstances will keys be exposed in frontend JavaScript, WebSocket payloads, or browser client logs.
+> **Modular Architecture**: An abstract `LLMService` layer will be implemented in `backend/app/services/llm_service.py`. It supports provider switching via `.env` (`LLM_PROVIDER=gemini` or `openai` or `mock`). If no API key is supplied, it falls back to a graceful mock engine without crashing.
+> **UI Design Consistency**: The visual style will strictly adhere to the existing dark developer theme (`#090a0e`, `#11141c`, `#161a26`, `#6366f1`).
+
+## Open Questions
+
+None. The task requirements and existing project architecture are clear.
+
+---
+
+## Proposed Changes
+
+### Backend (Python + FastAPI)
+
+#### [MODIFY] [backend/requirements.txt](file:///c:/Users/LEGION/GIT/vox-vision-ai/backend/requirements.txt)
+- Add `httpx>=0.27.0` for asynchronous HTTP requests to LLM APIs (Gemini / OpenAI REST endpoints).
+
+#### [MODIFY] [backend/app/config.py](file:///c:/Users/LEGION/GIT/vox-vision-ai/backend/app/config.py)
+- Add `LLM_PROVIDER: str = "gemini"` (or `"openai"` / `"mock"`).
+- Add `GEMINI_API_KEY: str = ""`
+- Add `OPENAI_API_KEY: str = ""`
+- Add `LLM_MODEL_NAME: str = "gemini-2.5-flash"`
+
+#### [MODIFY] [backend/.env.example](file:///c:/Users/LEGION/GIT/vox-vision-ai/backend/.env.example)
+- Add active LLM configuration variables:
+  ```env
+  LLM_PROVIDER="gemini"
+  LLM_MODEL_NAME="gemini-2.5-flash"
+  GEMINI_API_KEY="your_gemini_api_key_here"
+  # OPENAI_API_KEY="your_openai_api_key_here"
+  ```
+
+#### [NEW] [backend/app/services/__init__.py](file:///c:/Users/LEGION/GIT/vox-vision-ai/backend/app/services/__init__.py)
+- Package initializer for services.
+
+#### [NEW] [backend/app/services/llm_service.py](file:///c:/Users/LEGION/GIT/vox-vision-ai/backend/app/services/llm_service.py)
+- Implement `BaseLLMProvider` abstract interface.
+- Implement `GeminiProvider` using Google Gemini REST API (`httpx.AsyncClient`).
+- Implement `OpenAIProvider` using OpenAI REST API (`httpx.AsyncClient`).
+- Implement `MockLLMProvider` for development without API keys.
+- Implement `LLMServiceManager` factory that selects the active provider based on `settings.LLM_PROVIDER` and handles connection errors, invalid key errors, rate limits, and timeouts gracefully.
+
+#### [MODIFY] [backend/app/api/websocket.py](file:///c:/Users/LEGION/GIT/vox-vision-ai/backend/app/api/websocket.py)
+- Update `websocket_chat_endpoint`:
+  - When `chat_message` is received, invoke `llm_service.generate_response(user_message, conversation_history)`.
+  - Return formatted `chat_response` frame containing AI reply, provider model name, and status.
+  - Return structured `error` response frame if LLM API call fails, preserving WebSocket connection stability.
+
+---
+
+### Frontend (HTML / CSS / Vanilla JS)
+
+#### [MODIFY] [frontend/app.js](file:///c:/Users/LEGION/GIT/vox-vision-ai/frontend/app.js)
+- Enhance chat message flow:
+  - Render subtle, pulse-animated thinking/loading state ("VoxVision AI is reasoning...") when waiting for WebSocket response.
+  - Render LLM responses dynamically with copy button and provider badge.
+  - Handle error response frames from backend gracefully with retry toast/notice.
+  - Ensure empty messages cannot be submitted.
+
+#### [MODIFY] [frontend/index.html](file:///c:/Users/LEGION/GIT/vox-vision-ai/frontend/index.html)
+- Update header/hero cards to indicate Step 3 active LLM integration.
+
+#### [MODIFY] [frontend/styles.css](file:///c:/Users/LEGION/GIT/vox-vision-ai/frontend/styles.css)
+- Add subtle thinking indicator dot animation matching existing dark aesthetic without flashy neon elements.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Create a test script `scratch/test_llm_step3.py` to test:
+  1. WebSocket handshake and connection ack.
+  2. Sending normal chat queries (`"Explain async in Python"`) and verifying valid AI responses.
+  3. Sending empty messages and verifying rejection.
+  4. Verifying no API keys or credentials exist in frontend assets or client WebSocket frames.
+
+### Manual & Localhost Verification
+1. Start FastAPI backend on `http://127.0.0.1:8000`.
+2. Open `http://127.0.0.1:8000` in browser.
+3. Test normal conversation queries.
+4. Test empty inputs (verify send button is disabled / blocked).
+5. Inspect browser Developer Tools -> Network tab & Console -> verify zero exposure of `GEMINI_API_KEY` or `OPENAI_API_KEY`.
