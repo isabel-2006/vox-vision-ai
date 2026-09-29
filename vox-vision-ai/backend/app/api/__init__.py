@@ -1,3 +1,0 @@
-"""
-VoxVision AI API Package
-"""
